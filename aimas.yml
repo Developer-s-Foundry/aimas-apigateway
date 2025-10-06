@@ -1,0 +1,12 @@
+# an example yaml file used for  testing
+services:
+  - name: user-service
+    host: localhost:9090
+    version: v1
+    prefix: /api/v1 # values that comes before routes
+    protocol: http # support only http for now later version will support grpc, and https
+    description: handle user authentication routes logic
+    port: 9090
+    routes:
+      - path: /users
+        methods: [GET, POST] # number of methods to be performed on the paths
