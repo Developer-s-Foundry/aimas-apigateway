@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"net/http"
@@ -46,13 +47,19 @@ func gateWayServer(serverConfig ...Service) {
 					return
 				}
 
+				var body io.Reader
+				if r.Body != nil {
+					data, _ := io.ReadAll(r.Body)
+					r.Body.Close()
+					body = bytes.NewReader(data)
+				}
 				proxyURL := targetServer.String() + r.URL.Path
-				req, err := http.NewRequest(r.Method, proxyURL, r.Body)
+				setReqHeaders(r, targetServer, config)
+				req, err := http.NewRequest(r.Method, proxyURL, body)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
 				}
-				setReqHeaders(r, targetServer, config)
 				req.Header = r.Header.Clone()
 
 				resp, err := http.DefaultTransport.RoundTrip(req)
@@ -61,7 +68,6 @@ func gateWayServer(serverConfig ...Service) {
 					return
 				}
 				defer resp.Body.Close()
-
 				if isStreamingResponse(resp) {
 					streamResponse(w, resp)
 				} else {

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -9,7 +8,6 @@ import (
 
 func contains(methods []string, method string) bool {
 	for _, m := range methods {
-		fmt.Println(m, method)
 		if m == method {
 			return true
 		}
