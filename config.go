@@ -32,10 +32,6 @@ type Route struct {
 	Methods []string `yaml:"methods"`
 }
 
-// config file path if not in current directory the next value should be the file path
-// e.g configName:appConfig
-// configFilePath: /etc/config if in current directory can be ommitted else file path follow suite like this
-// NewServiceConfig(appConfig, /etc/config)
 func NewServiceConfig(configName, configPath string) (ServiceConfig, error) {
 	err := loadConfigFile(configName, configPath)
 
@@ -71,6 +67,9 @@ func loadConfigFile(configName, configPath string) error {
 }
 
 func (s *Service) parseURL() error {
+	if s.Protocol == "" {
+		s.Protocol = "http"
+	}
 	if !hasScheme(s.Host) {
 		s.Host = fmt.Sprintf("%s://%s", s.Protocol, s.Host)
 	}
