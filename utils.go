@@ -64,7 +64,7 @@ func JSONSuccess(w http.ResponseWriter, message string, data interface{}, status
 
 func JSONBadResponse(w http.ResponseWriter, message string, statusCode int) {
 	resp := JSONResponse{
-		Status:     "bad",
+		Status:     http.StatusText(statusCode),
 		Message:    message,
 		StatusCode: statusCode,
 	}
