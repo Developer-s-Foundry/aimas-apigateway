@@ -64,7 +64,6 @@ func (s *GatewayTestSuite) TestGatewayRoutesMultipleServices() {
 
 	gateWayServer(services...)
 
-	// start gateway
 	ts := httptest.NewServer(nil)
 	defer ts.Close()
 
