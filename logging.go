@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -31,9 +33,30 @@ func NewLogger() *Log {
 	multiWriter := io.MultiWriter(os.Stdout, logFile)
 	zerolog.TimeFieldFormat = time.RFC3339
 	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
-		return filepath.Base(file) + ":" + strconv.Itoa(line)
+		const maxDepth = 15
+		prefix := "aimas-apigateway"
+		for i := 2; i < maxDepth; i++ {
+			_, file, line, ok := runtime.Caller(i)
+			if !ok {
+				break
+			}
+
+			if strings.Contains(file, "/rs/zerolog/") ||
+				strings.Contains(file, "/runtime/") ||
+				strings.Contains(file, "/testing/") ||
+				strings.Contains(file, "logging.go") {
+				continue
+			}
+
+			if strings.Contains(file, prefix) {
+				return fmt.Sprintf("%s:%d", filepath.Base(file), line)
+			}
+		}
+		_, f, l, _ := runtime.Caller(0)
+		caller := fmt.Sprintf("%s:%d", filepath.Base(f), l)
+		return caller
 	}
-	log := zerolog.New(multiWriter).Level(zerolog.DebugLevel).With().Caller().Logger()
+	log := zerolog.New(multiWriter).Level(zerolog.DebugLevel).With().CallerWithSkipFrameCount(2).Logger()
 	logger.lg = log
 	return logger
 }
@@ -43,7 +66,7 @@ func (l *Log) Info(key, msg string) {
 }
 
 func (l *Log) Error(key string, err error) {
-	l.lg.Err(err).AnErr(key, err).Msg("")
+	l.lg.Error().AnErr(key, err).Msg("")
 }
 
 func (l *Log) Warning(key string, msg string) {

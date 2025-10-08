@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/rs/zerolog/hlog"
@@ -23,7 +24,7 @@ func LoggingMiddleware(config Service) func(http.Handler) http.Handler {
 				logger := hlog.FromRequest(r)
 
 				switch {
-				case status < 400:
+				case status >= 100 && status < 400:
 					logger.Info().
 						Str("method", r.Method).
 						Str("path", r.URL.Path).
@@ -59,4 +60,25 @@ func LoggingMiddleware(config Service) func(http.Handler) http.Handler {
 			})(next),
 		)
 	}
+}
+
+func RecoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.lg.Error().
+					Str("path", r.URL.Path).
+					Str("method", r.Method).
+					Interface("panic", rec).
+					Str("stack", string(debug.Stack())).
+					Msg("panic recovered from handler")
+
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				JSONBadResponse(w, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+
+		next.ServeHTTP(w, r)
+	})
 }

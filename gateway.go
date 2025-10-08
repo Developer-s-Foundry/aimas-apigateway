@@ -10,6 +10,7 @@ import (
 	"path"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
 
@@ -22,24 +23,32 @@ func main() {
 		log.Error("service-config", err)
 	}
 
-	gateWayServer(sc.Services...)
+	router := gateWayServer(sc.Services...)
 
 	port := os.Getenv("PORT")
 
 	log.Info("message", fmt.Sprintf("server running on port: %s", port))
-	log.Fatal("server-err", http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+	log.Fatal("server-err", http.ListenAndServe(fmt.Sprintf(":%s", port), router))
 }
 
-func gateWayServer(serverConfig ...Service) {
+func gateWayServer(serverConfig ...Service) http.Handler {
+	router := mux.NewRouter()
 	for _, config := range serverConfig {
 		if err := config.parseURL(); err != nil {
-			log.Error("config-error", err)
+			log.lg.Error().
+				Err(err).
+				Str("service", config.Name).
+				Msg("failed to parse service URL")
 			continue
 		}
 
 		targetServer, err := url.Parse(config.Host)
-		if err != nil {
-			log.Error("target-server", err)
+		if err != nil || targetServer.Scheme == "" || targetServer.Host == "" {
+			log.lg.Error().
+				Err(err).
+				Str("service", config.Name).
+				Str("host", config.Host).
+				Msg("invalid target server URL")
 			continue
 		}
 
@@ -52,18 +61,25 @@ func gateWayServer(serverConfig ...Service) {
 			}
 
 			h := applyMiddleWare(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				proxyRouter(w, r, targetServer, config, route)
-			}), LoggingMiddleware(config))
-			http.Handle(fullPath, h)
+				proxyRouter(w, r, targetServer, config)
+			}), LoggingMiddleware(config), RecoverMiddleware)
+
+			router.Handle(fullPath, h).Methods(route.Methods...)
 		}
 	}
+
+	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		JSONBadResponse(w, "404 not found", http.StatusNotFound)
+	})
+
+	router.MethodNotAllowedHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		JSONBadResponse(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	})
+
+	return router
 }
 
-func proxyRouter(w http.ResponseWriter, r *http.Request, targetServer *url.URL, config Service, route Route) {
-	if !contains(route.Methods, r.Method) {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
+func proxyRouter(w http.ResponseWriter, r *http.Request, targetServer *url.URL, config Service) {
 	var body io.Reader
 	if r.Body != nil {
 		data, _ := io.ReadAll(r.Body)

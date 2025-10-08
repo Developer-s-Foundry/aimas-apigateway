@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/viper"
 	"go.yaml.in/yaml/v3"
@@ -76,7 +77,11 @@ func (s *Service) parseURL() error {
 
 	u, err := url.Parse(s.Host)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid URL: missing scheme or host, %w", err)
+	}
+
+	if strings.Contains(u.Host, ":") && strings.Count(u.Host, ":") > 1 {
+		return errors.New("invalid URL: malformed port section")
 	}
 
 	host := u.Host

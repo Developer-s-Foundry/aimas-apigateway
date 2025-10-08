@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// mock backend server
 func newMockServer(response string, stream bool) *httptest.Server {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if stream {
@@ -30,7 +29,6 @@ func newMockServer(response string, stream bool) *httptest.Server {
 	return httptest.NewServer(handler)
 }
 
-// Test suite
 type GatewayTestSuite struct {
 	suite.Suite
 }
@@ -62,9 +60,9 @@ func (s *GatewayTestSuite) TestGatewayRoutesMultipleServices() {
 		},
 	}
 
-	gateWayServer(services...)
+	router := gateWayServer(services...)
 
-	ts := httptest.NewServer(nil)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	resp1, _ := http.Get(ts.URL + "/s1")
@@ -95,9 +93,9 @@ func (s *GatewayTestSuite) TestGatewayPrefixAndPathJoin() {
 		},
 	}
 
-	gateWayServer(service)
+	router := gateWayServer(service)
 
-	ts := httptest.NewServer(nil)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	resp, _ := http.Get(ts.URL + "/movie/info")
@@ -121,9 +119,9 @@ func (s *GatewayTestSuite) TestGatewayStreamingResponse() {
 		},
 	}
 
-	gateWayServer(service)
+	router := gateWayServer(service)
 
-	ts := httptest.NewServer(nil)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	resp, _ := http.Get(ts.URL + "/stream")
@@ -148,8 +146,9 @@ func (s *GatewayTestSuite) TestGatewayNonStreamingResponse() {
 		},
 	}
 
-	gateWayServer(service)
-	ts := httptest.NewServer(nil)
+	router := gateWayServer(service)
+
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	resp, _ := http.Get(ts.URL + "/non-stream")
@@ -173,8 +172,9 @@ func (s *GatewayTestSuite) TestGatewayRejectsInvalidMethod() {
 		},
 	}
 
-	gateWayServer(service)
-	ts := httptest.NewServer(nil)
+	router := gateWayServer(service)
+
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	req, _ := http.NewRequest("POST", ts.URL+"/reject", bytes.NewBufferString(`{}`))
@@ -196,8 +196,8 @@ func (s *GatewayTestSuite) TestGatewayHandlesInvalidConfigGracefully() {
 			{Path: "/bad", Methods: []string{"GET"}},
 		},
 	}
-	gateWayServer(service)
-	ts := httptest.NewServer(nil)
+	router := gateWayServer(service)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	resp, _ := http.Get(ts.URL + "/bad")
@@ -220,9 +220,8 @@ func (s *GatewayTestSuite) TestGatewayPreservesHeaders() {
 			{Path: "/headers", Methods: []string{"GET"}},
 		},
 	}
-	gateWayServer(service)
-
-	ts := httptest.NewServer(nil)
+	router := gateWayServer(service)
+	ts := httptest.NewServer(router)
 	defer ts.Close()
 
 	req, _ := http.NewRequest("GET", ts.URL+"/headers", nil)
