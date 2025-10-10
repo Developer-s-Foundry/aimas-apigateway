@@ -7,15 +7,6 @@ import (
 	"strings"
 )
 
-func contains(methods []string, method string) bool {
-	for _, m := range methods {
-		if m == method {
-			return true
-		}
-	}
-	return false
-}
-
 func forwardResponse(w http.ResponseWriter, resp *http.Response) {
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
@@ -40,13 +31,13 @@ func copyHeaders(dst, src http.Header) {
 }
 
 type JSONResponse struct {
-	Status     string      `json:"status"`                // "success" or "bad"
-	Message    string      `json:"message"`               // description of the response
-	Data       interface{} `json:"data,omitempty"`        // present for success only
-	StatusCode int         `json:"status_code,omitempty"` // useful for bad responses
+	Status     string      `json:"status"`
+	Message    string      `json:"message"`
+	Data       interface{} `json:"data,omitempty"`
+	StatusCode int         `json:"status_code,omitempty"`
+	Error      interface{} `json:"error,omitempty"`
 }
 
-// writeJSON handles encoding and writing headers
 func writeJSON(w http.ResponseWriter, statusCode int, resp JSONResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
@@ -62,7 +53,7 @@ func JSONSuccess(w http.ResponseWriter, message string, data interface{}, status
 	writeJSON(w, statusCode, resp)
 }
 
-func JSONBadResponse(w http.ResponseWriter, message string, statusCode int) {
+func JSONBadResponse(w http.ResponseWriter, message string, statusCode int, error interface{}) {
 	resp := JSONResponse{
 		Status:     http.StatusText(statusCode),
 		Message:    message,

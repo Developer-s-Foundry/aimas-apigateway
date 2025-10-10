@@ -33,7 +33,9 @@ type GatewayTestSuite struct {
 	suite.Suite
 }
 
-func (s *GatewayTestSuite) SetupTest() {}
+func (s *GatewayTestSuite) SetupTest() {
+	// os.Setenv("debug", "test")
+}
 
 func (s *GatewayTestSuite) TestGatewayRoutesMultipleServices() {
 	service1 := newMockServer(`{"service":"1","response":"service1-response"}`, false)
@@ -233,6 +235,112 @@ func (s *GatewayTestSuite) TestGatewayPreservesHeaders() {
 
 	s.Equal(http.StatusOK, resp.StatusCode)
 	s.Contains(string(body), "ok")
+}
+
+func (s *GatewayTestSuite) TestRateLimitRetryAfter() {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok": true}`))
+	}))
+	defer mock.Close()
+
+	service := Service{
+		Name: "rate-limit-service",
+		Host: mock.URL,
+		Routes: []Route{
+			{Path: "/limited", Methods: []string{"GET"}},
+		},
+		RateLimit: RateLimit{
+			RequestsPerMinute: 2,
+		},
+	}
+
+	router := gateWayServer(service)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	client := &http.Client{}
+
+	for i := 0; i < 2; i++ {
+		resp, err := client.Get(ts.URL + "/limited")
+		require.NoError(s.T(), err)
+		require.Equal(s.T(), http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+	}
+
+	resp, err := client.Get(ts.URL + "/limited")
+	require.NoError(s.T(), err)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusTooManyRequests, resp.StatusCode)
+
+	retryAfter := resp.Header.Get("Retry-After")
+	s.NotEmpty(retryAfter, "Retry-After header must be set")
+}
+
+func (s *GatewayTestSuite) TestRateLimitPerService() {
+	service1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"service":"1"}`))
+	}))
+	defer service1.Close()
+
+	service2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"service":"2"}`))
+	}))
+	defer service2.Close()
+
+	svc1 := Service{
+		Name: "svc1",
+		Host: service1.URL,
+		Routes: []Route{
+			{Path: "/s1", Methods: []string{"GET"}},
+		},
+		RateLimit: RateLimit{RequestsPerMinute: 2},
+	}
+
+	svc2 := Service{
+		Name: "svc2",
+		Host: service2.URL,
+		Routes: []Route{
+			{Path: "/s2", Methods: []string{"GET"}},
+		},
+		RateLimit: RateLimit{RequestsPerMinute: 3},
+	}
+
+	router := gateWayServer(svc1, svc2)
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	client := &http.Client{}
+
+	for i := 0; i < 2; i++ {
+		resp, err := client.Get(ts.URL + "/s1")
+		require.NoError(s.T(), err)
+		require.Equal(s.T(), http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+	}
+
+	resp, err := client.Get(ts.URL + "/s1")
+	require.NoError(s.T(), err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusTooManyRequests, resp.StatusCode)
+	s.NotEmpty(resp.Header.Get("Retry-After"))
+
+	for i := 0; i < 3; i++ {
+		resp, err := client.Get(ts.URL + "/s2")
+		require.NoError(s.T(), err)
+		s.Equal(http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+	}
+
+	resp, err = client.Get(ts.URL + "/s2")
+	require.NoError(s.T(), err)
+	defer resp.Body.Close()
+	s.Equal(http.StatusTooManyRequests, resp.StatusCode)
+	s.NotEmpty(resp.Header.Get("Retry-After"))
 }
 
 func TestGatewayTestSuite(t *testing.T) {

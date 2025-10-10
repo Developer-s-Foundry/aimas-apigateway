@@ -17,15 +17,19 @@ type ServiceConfig struct {
 	Services []Service `yaml:"services"`
 }
 
+type RateLimit struct {
+	RequestsPerMinute int `yaml:"requests_per_minute"`
+}
 type Service struct {
-	Name        string  `yaml:"name"`
-	Host        string  `yaml:"host"`
-	Version     string  `yaml:"version"`
-	Prefix      string  `yaml:"prefix"`
-	Protocol    string  `yaml:"protocol"`
-	Description string  `yaml:"description"`
-	Port        int     `yaml:"port"`
-	Routes      []Route `yaml:"routes"`
+	Name        string    `yaml:"name"`
+	Host        string    `yaml:"host"`
+	Version     string    `yaml:"version"`
+	Prefix      string    `yaml:"prefix"`
+	Protocol    string    `yaml:"protocol"`
+	Description string    `yaml:"description"`
+	Port        int       `yaml:"port"`
+	Routes      []Route   `yaml:"routes"`
+	RateLimit   RateLimit `yaml:"rate_limit"`
 }
 
 type Route struct {

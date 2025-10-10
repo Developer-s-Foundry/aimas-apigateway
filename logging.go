@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,32 @@ type Log struct {
 
 var logs = "logs"
 
+var mode = os.Getenv("debug")
+
+type TextWriter struct {
+	io.Writer
+}
+
+func (tw TextWriter) Write(p []byte) (n int, err error) {
+	var logEntry map[string]interface{}
+	if err := json.Unmarshal(p, &logEntry); err != nil {
+		return tw.Writer.Write(p)
+	}
+
+	var parts []string
+	keys := []string{
+		"level", "method", "path", "status_code", "latency",
+		"service_target", "user_agent", "request_id", "caller", "message",
+	}
+	for _, k := range keys {
+		if val, ok := logEntry[k]; ok {
+			parts = append(parts, fmt.Sprintf("%s=%v", k, val))
+		}
+	}
+	line := strings.Join(parts, " ") + "\n"
+	return tw.Writer.Write([]byte(line))
+}
+
 func NewLogger() *Log {
 	os.MkdirAll(logs, 0755)
 	fileName := filepath.Join(logs, "gateway.log")
@@ -30,7 +57,14 @@ func NewLogger() *Log {
 		MaxBackups: 2,
 		Compress:   true,
 	}
-	multiWriter := io.MultiWriter(os.Stdout, logFile)
+
+	var writer io.Writer
+
+	if mode == "test" {
+		writer = io.MultiWriter(TextWriter{Writer: os.Stdout}, logFile)
+	} else {
+		writer = TextWriter{Writer: os.Stdout}
+	}
 	zerolog.TimeFieldFormat = time.RFC3339
 	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
 		const maxDepth = 15
@@ -56,7 +90,7 @@ func NewLogger() *Log {
 		caller := fmt.Sprintf("%s:%d", filepath.Base(f), l)
 		return caller
 	}
-	log := zerolog.New(multiWriter).Level(zerolog.DebugLevel).With().CallerWithSkipFrameCount(2).Logger()
+	log := zerolog.New(writer).Level(zerolog.DebugLevel).With().CallerWithSkipFrameCount(2).Logger()
 	logger.lg = log
 	return logger
 }

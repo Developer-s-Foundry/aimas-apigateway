@@ -66,20 +66,25 @@ func gateWayServer(serverConfig ...Service) http.Handler {
 				fullPath = route.Path
 			}
 
+			r := NewRateLimiter()
 			h := applyMiddleWare(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				proxyRouter(w, r, targetServer, config)
-			}), LoggingMiddleware(config), RecoverMiddleware)
+			}),
+				r.Middleware(config.Name, config.RateLimit.RequestsPerMinute),
+				LoggingMiddleware(config),
+				RecoverMiddleware,
+			)
 
 			router.Handle(fullPath, h).Methods(route.Methods...)
 		}
 	}
 
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		JSONBadResponse(w, "404 not found", http.StatusNotFound)
+		JSONBadResponse(w, "404 not found", http.StatusNotFound, nil)
 	})
 
 	router.MethodNotAllowedHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		JSONBadResponse(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		JSONBadResponse(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed, nil)
 	})
 
 	return router
