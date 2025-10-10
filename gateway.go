@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +19,12 @@ var log = NewLogger()
 
 func main() {
 	godotenv.Load()
-	sc, err := NewServiceConfig("aimas.yml", "")
+
+	configFile := flag.String("config", "aimas.yml", "user configuration file")
+	path := flag.String("path", "", "config file path")
+	flag.Parse()
+
+	sc, err := NewServiceConfig(*configFile, *path)
 	if err != nil {
 		log.Error("service-config", err)
 	}
