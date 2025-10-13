@@ -20,13 +20,15 @@ var log = NewLogger()
 func main() {
 	godotenv.Load()
 
-	configFile := flag.String("config", "aimas.yml", "user configuration file")
+	configFile := flag.String("config", "", "user configuration file")
 	path := flag.String("path", "", "config file path")
+	rAddr := flag.String("addr", "", "config file remote address")
 	flag.Parse()
 
-	sc, err := NewServiceConfig(*configFile, *path)
+	sc, err := NewServiceConfig(*configFile, *path, *rAddr)
 	if err != nil {
-		log.Error("service-config", err)
+		fmt.Println(err)
+		log.Error("service-config", "failed to load configuration file: "+err.Error(), err)
 	}
 
 	router := gateWayServer(sc.Services...)
@@ -73,6 +75,7 @@ func gateWayServer(serverConfig ...Service) http.Handler {
 				r.Middleware(config.Name, config.RateLimit.RequestsPerMinute),
 				LoggingMiddleware(config),
 				RecoverMiddleware,
+				SecurityHeadersMiddleware,
 			)
 
 			router.Handle(fullPath, h).Methods(route.Methods...)
@@ -80,7 +83,7 @@ func gateWayServer(serverConfig ...Service) http.Handler {
 	}
 
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		JSONBadResponse(w, "404 not found", http.StatusNotFound, nil)
+		JSONBadResponse(w, "404 route not found", http.StatusNotFound, nil)
 	})
 
 	router.MethodNotAllowedHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +136,7 @@ func setReqHeaders(r *http.Request, targetServer *url.URL, config Service) {
 	r.Header.Set("X-Request-ID", uuid.NewString())
 	r.Header.Set("Authorization", "Bearer internal_service_token_123") //TODO: will implement this later on
 	r.Header.Set("X-Forwarded-For", ip)
+	signRequest(r, config)
 }
 
 func streamResponse(w http.ResponseWriter, resp *http.Response) {
@@ -150,7 +154,7 @@ func streamResponse(w http.ResponseWriter, resp *http.Response) {
 		}
 		if err != nil {
 			if err != io.EOF {
-				log.Error("eof", err)
+				log.Error("eof", err.Error(), err)
 			}
 			break
 		}

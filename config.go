@@ -3,7 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -37,25 +39,42 @@ type Route struct {
 	Methods []string `yaml:"methods"`
 }
 
-func NewServiceConfig(configName, configPath string) (ServiceConfig, error) {
-	err := loadConfigFile(configName, configPath)
-
+func NewServiceConfig(configName, configPath, remoteAddr string) (ServiceConfig, error) {
+	var err error
+	data := make([]byte, 1024*2)
 	var sc = ServiceConfig{}
-	if err != nil {
-		if errors.Is(err, viper.ConfigFileNotFoundError{}) {
-			return ServiceConfig{}, ErrorConfigFileNotFound
+	if configName != "" {
+		err = loadConfigFile(configName, configPath)
+		if err != nil {
+			if errors.Is(err, viper.ConfigFileNotFoundError{}) {
+				return ServiceConfig{}, ErrorConfigFileNotFound
+			}
+			return ServiceConfig{}, err
 		}
-		return ServiceConfig{}, err
+
+		filepath := viper.ConfigFileUsed()
+		file, err := os.Open(filepath)
+		if err != nil {
+			return ServiceConfig{}, err
+		}
+		n, err := file.Read(data)
+
+		data = data[:n]
+		if err != nil {
+			return ServiceConfig{}, err
+		}
+	} else {
+		resp, err := http.Get(remoteAddr)
+		if err != nil {
+			return ServiceConfig{}, err
+		}
+		data, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return ServiceConfig{}, err
+		}
 	}
 
-	filepath := viper.ConfigFileUsed()
-	data, err := os.Open(filepath)
-
-	if err != nil {
-		return ServiceConfig{}, err
-	}
-
-	if err := yaml.NewDecoder(data).Decode(&sc); err != nil {
+	if err := yaml.Unmarshal(data, &sc); err != nil {
 		return ServiceConfig{}, err
 	}
 	return sc, nil

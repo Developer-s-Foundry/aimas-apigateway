@@ -1,25 +1,28 @@
 # AIMAS API Gateway
 
-The **AIMAS API Gateway** is a custom-built gateway written in **Go**, designed to serve as the entry point for AIMAS  a Sentry-like distributed application monitoring system. It provides centralized routing, service discovery, authentication, metrics, and observability across multiple microservices.
+The **AIMAS API Gateway** is a custom-built gateway written in **Go**, designed to serve as the central entry point for the **AIMAS** distributed application monitoring platform.
+It provides **intelligent routing**, **service discovery**, **rate limiting**, **authentication**, **observability**, and **security enforcement** for all backend microservices.
 
 ---
 
 ## Key Features
 
-* **YAML-Based Configuration** — Simple and structured `.yaml` configuration for defining services and routes.
-* **Dynamic Routing** — Automatically maps routes to backend services.
-* **Protocol Support** — Supports **HTTP**, **HTTPS**, and **gRPC** communication.
-* **Authentication Middleware** — Built-in middleware for JWT and key-based authentication.
-* **Rate Limiting** — Configurable rate limits per service or per route.
-* **Metrics & Monitoring** — Built-in metrics collection for service health and performance monitoring.
-* **Request Logging** — Centralized structured logging for all incoming requests.
-* **Graceful Error Handling** — Handles service failures, invalid configs, and bad routes gracefully.
+* **YAML-Based Configuration** — Define services, routes, and rate limits using simple `.yaml` files.
+* **Dynamic Routing** — Automatically routes requests to the correct backend service based on configuration or service discovery.
+* **Service Discovery** — Supports both static YAML configuration and dynamic service registry lookups.
+* **Security Headers** — Automatically injects strict HTTP security headers to protect against common web exploits.
+* **Gateway Signature Headers** — Each request includes a signed timestamp and gateway signature to verify authenticity.
+* **Rate Limiting** — Configurable per-service or per-route throttling.
+* **Metrics & Observability** — Built-in metrics for monitoring service health, latency, and traffic volume.
+* **Structured Logging** — Centralized JSON logs for all requests and responses.
+* **Graceful Error Handling** — Returns structured JSON errors for invalid routes, timeouts, and failures.
 
 ---
 
 ## Configuration Structure (`.yaml`)
 
-The gateway uses a YAML configuration file to define how services and routes should be handled.
+The gateway uses YAML configuration files to define services, routes, and limits.
+Service discovery can dynamically register or override these configurations at runtime.
 
 ### Example Configuration
 
@@ -27,106 +30,127 @@ The gateway uses a YAML configuration file to define how services and routes sho
 services:
   - name: user-service
     host: user.api.internal
-    port: 8080
+    version: v1
+    prefix: /api/v1
     protocol: http
-    secret_key: "user_service_secret"
+    description: Handles user registration and authentication
+    port: 8080
+    rate_limit:
+      requests_per_minute: 100
     routes:
       - path: /users
         methods: [GET, POST]
-        description: Handles user registration and listing
-        rate_limit: 100
-        auth_required: true
 
   - name: log-service
     host: log.api.internal
-    protocol: grpc
-    description: Collects application logs for monitoring
+    version: v1
+    prefix: /api/v1
+    protocol: http
+    description: Collects application logs
+    port: 9090
+    rate_limit:
+      requests_per_minute: 60
     routes:
       - path: /logs
         methods: [POST]
-        auth_required: false
-
-timeouts:
-  client_timeout: 30m
 ```
 
 ---
 
-## Configuration Key Reference
+## Configuration Schema
 
-| Key             | Description                                | Required                   | Example                        |
-| --------------- | ------------------------------------------ | -------------------------- | ------------------------------ |
-| `services`      | List of all configured microservices       | x                          | —                              |
-| `name`          | Unique identifier for the service          | x                          | `user-service`                 |
-| `host`          | Service host (no trailing slash)           | x                          | `auth.api.internal`            |
-| `port`          | Service port                               | Optional                   | `8080`                         |
-| `protocol`      | Service protocol (`http`, `https`, `grpc`) | Optional                   | `http`                         |
-| `routes`        | List of route configurations               | x                          | —                              |
-| `path`          | URL path pattern                           | x                          | `/users`                       |
-| `methods`       | Allowed HTTP verbs                         | Optional (defaults to GET) | `[GET, POST]`                  |
-| `description`   | Optional route description                 | Optional                   | `Handles user CRUD operations` |
-| `rate_limit`    | Requests per minute limit                  | Optional                   | `100`                          |
-| `auth_required` | Enable JWT verification                    | Optional                   | `true`                         |
-| `headers`       | Custom headers to add or forward           | Optional                   | `{ "X-Trace-ID": "..." }`      |
-| `timeouts`      | Client timeout configuration               | Optional                   | `30m`                          |
-| `secret_key`    | Secret key for JWT validation              | Optional                   | `mysecretkey`                  |
+| Key                              | Description                      | Required                 | Example               |
+| -------------------------------- | -------------------------------- | ------------------------ | --------------------- |
+| `services`                       | List of backend services         | Yes                      | —                     |
+| `name`                           | Service identifier               | Yes                      | `user-service`        |
+| `host`                           | Backend host (no trailing slash) | Yes                      | `auth.api.internal`   |
+| `port`                           | Service port                     | Optional                 | `8080`                |
+| `protocol`                       | `http` or `https`                | Optional (default: http) | `https`               |
+| `version`                        | Service version                  | Optional                 | `v1`                  |
+| `prefix`                         | Route prefix for the service     | Optional                 | `/api/v1`             |
+| `description`                    | Human-readable description       | Optional                 | `User management API` |
+| `rate_limit.requests_per_minute` | Max requests per minute          | Optional                 | `100`                 |
+| `routes.path`                    | Endpoint path                    | Yes                      | `/users`              |
+| `routes.methods`                 | Allowed HTTP methods             | Optional                 | `[GET, POST]`         |
 
 ---
 
-## Metrics and Monitoring
+## Gateway Security Headers (Request → Service)
 
-The gateway exposes internal metrics for:
+Every request forwarded from the gateway includes metadata headers for identification and verification:
 
-* Request rate and latency per route
-* Error and status code counts
-* Active connections and throughput
-* Authentication and rate limit violations
+| Header                | Description                                          |
+| --------------------- | ---------------------------------------------------- |
+| `X-Forwarded-Proto`   | Original request protocol (`http` or `https`)        |
+| `User-Agent`          | Identifies requests as coming from AIMAS Gateway     |
+| `X-Request-ID`        | Unique UUID for tracing each request                 |
+| `Authorization`       | Gateway-issued internal bearer token                 |
+| `X-Gateway-Timestamp` | Unix timestamp (prevents replay attacks)             |
+| `X-Gateway-Signature` | HMAC-SHA256 signature of the timestamp               |
+| `X-Gateway-Service`   | Name of the gateway instance (e.g., `aimas-gateway`) |
 
-These can be integrated into Prometheus, Grafana, or AIMAS' internal dashboard.
+Downstream services verify these headers to ensure requests originated from the trusted gateway and are recent (for example, within 5 minutes).
 
 ---
 
-## Authentication Middleware
+## Response Security Headers
 
-The built-in authentication middleware supports:
+All responses include the following headers to enhance security:
 
-* **JWT Verification** using service-specific `SecretKey`
-* **Header-based API Keys**
-* **Custom Claims Validation**
+| Header                         | Description                                          |
+| ------------------------------ | ---------------------------------------------------- |
+| `Strict-Transport-Security`    | Enforces HTTPS connections                           |
+| `X-Content-Type-Options`       | Prevents MIME-type sniffing                          |
+| `X-XSS-Protection`             | Enables XSS filter in browsers                       |
+| `X-Frame-Options`              | Prevents clickjacking (`DENY`)                       |
+| `Content-Security-Policy`      | Restricts content loading to same origin             |
+| `Referrer-Policy`              | Controls referrer information sent to external sites |
+| `Cache-Control`                | Prevents caching of sensitive data                   |
+| `Cross-Origin-Opener-Policy`   | Isolates browsing context                            |
+| `Cross-Origin-Resource-Policy` | Restricts resource sharing to same origin            |
 
-Each route can independently specify `auth_required: true` in the configuration to enforce authentication.
+---
+
+## Metrics and Observability
+
+The gateway collects metrics for:
+
+* Request count, latency, and throughput per route
+* Error rates and response codes
+* Rate limit and signature validation violations
+* Service health and response times
+
+Metrics can be exported to **Prometheus**, **Grafana**, or the **AIMAS Monitoring Dashboard**.
 
 ---
 
 ## Error Handling
 
-The gateway returns descriptive and structured JSON error responses for:
+The gateway returns standardized JSON errors for:
 
-* Invalid or unreachable backend services
-* Malformed configuration files
-* Unauthorized access (401/403)
-* Method not allowed (405)
+| Error Type          | Status Code | Example Message                                 |
+| ------------------- | ----------- | ----------------------------------------------- |
+| Missing Route       | `404`       | `{"message": "404 route not found"}`            |
+| Unauthorized        | `401`       | `{"message": "invalid or missing credentials"}` |
+| Forbidden           | `403`       | `{"message": "access denied"}`                  |
+| Rate Limit Exceeded | `429`       | `{"message": "too many requests"}`              |
+| Internal Error      | `500`       | `{"error": "internal server error"}`            |
 
 ---
 
 ## Running the Gateway
 
 ```bash
-go run main.go --config=config.yaml
+go run . --config=config.yaml | go run . --addr=http://configfile-hosted-here #use while running hosted config file
 ```
 
 Or build and run:
 
 ```bash
 go build -o aimas-gateway
-./aimas-gateway --config=./configs/aimas.yaml
+./aimas-gateway --config=./configs/aimas.yaml |
+
+ go build -o aimas-gateway
+./aimas-gateway --config=./configs/aimas.yaml  # use while runnng hosted config file
 ```
 
----
-
-## Future Enhancements
-
-* Service discovery integration
-* Centralized configuration reloads
-* Advanced circuit breaking and retries
-* gRPC streaming support

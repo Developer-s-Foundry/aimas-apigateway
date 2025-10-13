@@ -47,7 +47,6 @@ func (r *RateLimiter) Middleware(serviceName string, rpm int) func(http.Handler)
 }
 
 func LoggingMiddleware(config Service) func(http.Handler) http.Handler {
-
 	return func(next http.Handler) http.Handler {
 		return hlog.NewHandler(log.lg)(
 			hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
@@ -74,7 +73,6 @@ func LoggingMiddleware(config Service) func(http.Handler) http.Handler {
 						Str("user_agent", r.UserAgent()).
 						Str("request_id", r.Header.Get("X-Request-ID")).
 						Msg("client error occurred")
-
 				default:
 					logger.Error().
 						Str("method", r.Method).
@@ -107,6 +105,21 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 				JSONBadResponse(w, "internal server error", http.StatusInternalServerError, nil)
 			}
 		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func SecurityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		w.Header().Set("Referrer-Policy", "no-referrer-when-downgrade")
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		next.ServeHTTP(w, r)
 	})
 }

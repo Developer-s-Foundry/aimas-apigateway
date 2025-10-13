@@ -20,8 +20,6 @@ type Log struct {
 
 var logs = "logs"
 
-var mode = os.Getenv("debug")
-
 type TextWriter struct {
 	io.Writer
 }
@@ -29,7 +27,19 @@ type TextWriter struct {
 func (tw TextWriter) Write(p []byte) (n int, err error) {
 	var logEntry map[string]interface{}
 	if err := json.Unmarshal(p, &logEntry); err != nil {
-		return tw.Writer.Write(p)
+		line := strings.TrimSpace(string(p))
+
+		level := "info"
+		if strings.Contains(strings.ToLower(line), "error") {
+			level = "error"
+		} else if strings.Contains(strings.ToLower(line), "warn") {
+			level = "warn"
+		} else if strings.Contains(strings.ToLower(line), "debug") {
+			level = "debug"
+		}
+		formatted := fmt.Sprintf("level=%s message=%s\n", level, line)
+		_, err = tw.Writer.Write([]byte(formatted))
+		return len(p), err
 	}
 
 	var parts []string
@@ -42,14 +52,18 @@ func (tw TextWriter) Write(p []byte) (n int, err error) {
 			parts = append(parts, fmt.Sprintf("%s=%v", k, val))
 		}
 	}
+
 	line := strings.Join(parts, " ") + "\n"
-	return tw.Writer.Write([]byte(line))
+	_, err = tw.Writer.Write([]byte(line))
+	return len(p), err
 }
 
 func NewLogger() *Log {
+	mode := os.Getenv("debug")
 	os.MkdirAll(logs, 0755)
 	fileName := filepath.Join(logs, "gateway.log")
 	var logger *Log = &Log{}
+
 	logFile := &lumberjack.Logger{
 		Filename:   fileName,
 		MaxSize:    100,
@@ -60,7 +74,7 @@ func NewLogger() *Log {
 
 	var writer io.Writer
 
-	if mode == "test" {
+	if mode != "test" {
 		writer = io.MultiWriter(TextWriter{Writer: os.Stdout}, logFile)
 	} else {
 		writer = TextWriter{Writer: os.Stdout}
@@ -74,7 +88,6 @@ func NewLogger() *Log {
 			if !ok {
 				break
 			}
-
 			if strings.Contains(file, "/rs/zerolog/") ||
 				strings.Contains(file, "/runtime/") ||
 				strings.Contains(file, "/testing/") ||
@@ -99,8 +112,8 @@ func (l *Log) Info(key, msg string) {
 	l.lg.Info().Str(key, msg).Msg("")
 }
 
-func (l *Log) Error(key string, err error) {
-	l.lg.Error().AnErr(key, err).Msg("")
+func (l *Log) Error(key, message string, err error) {
+	l.lg.Error().AnErr(key, err).Msg(message)
 }
 
 func (l *Log) Warning(key string, msg string) {

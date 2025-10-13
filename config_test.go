@@ -39,7 +39,7 @@ var scList ServiceConfig
 func (c *ConfigTestSuite) TestConfigFileLoaded() {
 	writeToTestConfigFile(c.T())
 
-	sc, err := NewServiceConfig(configFile, configPath)
+	sc, err := NewServiceConfig(configFile, configPath, "")
 	require.NoError(c.T(), err)
 	require.Equal(c.T(), len(sc.Services), len(scList.Services))
 

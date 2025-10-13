@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,10 @@ type GatewayTestSuite struct {
 }
 
 func (s *GatewayTestSuite) SetupTest() {
-	// os.Setenv("debug", "test")
+	os.Setenv("debug", "test")
+}
+
+func (s *GatewayTestSuite) TearDownTest() {
 }
 
 func (s *GatewayTestSuite) TestGatewayRoutesMultipleServices() {
@@ -55,7 +59,6 @@ func (s *GatewayTestSuite) TestGatewayRoutesMultipleServices() {
 		{
 			Name: "service2",
 			Host: service2.URL,
-			// Protocol: "http",
 			Routes: []Route{
 				{Path: "/s2", Methods: []string{"GET"}},
 			},
