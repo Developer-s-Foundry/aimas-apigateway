@@ -1,156 +1,102 @@
 # AIMAS API Gateway
 
-The **AIMAS API Gateway** is a custom-built gateway written in **Go**, designed to serve as the central entry point for the **AIMAS** distributed application monitoring platform.
-It provides **intelligent routing**, **service discovery**, **rate limiting**, **authentication**, **observability**, and **security enforcement** for all backend microservices.
+The **AIMAS API Gateway** is a Go-based reverse proxy that routes incoming requests to the appropriate backend microservices in the AIMAS ecosystem. It provides **centralized traffic management**, **structured logging**, and **rate limiting**, ensuring reliability and observability across all internal services.
 
 ---
 
-## Key Features
+## Overview
 
-* **YAML-Based Configuration** — Define services, routes, and rate limits using simple `.yaml` files.
-* **Dynamic Routing** — Automatically routes requests to the correct backend service based on configuration or service discovery.
-* **Service Discovery** — Supports both static YAML configuration and dynamic service registry lookups.
-* **Security Headers** — Automatically injects strict HTTP security headers to protect against common web exploits.
-* **Gateway Signature Headers** — Each request includes a signed timestamp and gateway signature to verify authenticity.
-* **Rate Limiting** — Configurable per-service or per-route throttling.
-* **Metrics & Observability** — Built-in metrics for monitoring service health, latency, and traffic volume.
-* **Structured Logging** — Centralized JSON logs for all requests and responses.
-* **Graceful Error Handling** — Returns structured JSON errors for invalid routes, timeouts, and failures.
+The gateway acts as the single entry point for all AIMAS backend requests.
+It inspects incoming paths, matches them against service prefixes defined in the configuration file, and forwards requests to the correct backend target.
+
+Every forwarded request includes a **unique `X-Request-ID`**, enabling distributed tracing across services.
+All transactions are logged with relevant metadata such as latency, target service, and response status.
 
 ---
 
-## Configuration Structure (`.yaml`)
+## Core Features
 
-The gateway uses YAML configuration files to define services, routes, and limits.
-Service discovery can dynamically register or override these configurations at runtime.
+* **Dynamic Service Routing** — Routes traffic based on path prefixes.
+* **Structured Logging** — Logs include service name, latency, request ID, and status code.
+* **Rate Limiting** — Prevents service overload with per-service request quotas.
+* **Tracing Support** — Automatically attaches a unique `X-Request-ID` to every request.
+* **Security Headers** — Adds standard HTTP headers for improved safety and observability.
+* **Centralized Configuration** — All services are managed through a single YAML file.
 
-### Example Configuration
+---
+
+## Configuration
+
+The gateway uses a single configuration file (`config.yaml`) to register backend services, their prefixes, and their rate limits.
+
+### Example: `config.yaml`
 
 ```yaml
 services:
   - name: user-service
-    host: user.api.internal
-    version: v1
-    prefix: /api/v1
-    protocol: http
-    description: Handles user registration and authentication
-    port: 8080
+    host: http://localhost:9001
+    prefix: /users
+    rate_limit:
+      requests_per_minute: 120
+
+  - name: movie-service
+    host: http://localhost:9002
+    prefix: /movies
     rate_limit:
       requests_per_minute: 100
-    routes:
-      - path: /users
-        methods: [GET, POST]
-
-  - name: log-service
-    host: log.api.internal
-    version: v1
-    prefix: /api/v1
-    protocol: http
-    description: Collects application logs
-    port: 9090
-    rate_limit:
-      requests_per_minute: 60
-    routes:
-      - path: /logs
-        methods: [POST]
 ```
 
----
+### Configuration Schema
 
-## Configuration Schema
-
-| Key                              | Description                      | Required                 | Example               |
-| -------------------------------- | -------------------------------- | ------------------------ | --------------------- |
-| `services`                       | List of backend services         | Yes                      | —                     |
-| `name`                           | Service identifier               | Yes                      | `user-service`        |
-| `host`                           | Backend host (no trailing slash) | Yes                      | `auth.api.internal`   |
-| `port`                           | Service port                     | Optional                 | `8080`                |
-| `protocol`                       | `http` or `https`                | Optional (default: http) | `https`               |
-| `version`                        | Service version                  | Optional                 | `v1`                  |
-| `prefix`                         | Route prefix for the service     | Optional                 | `/api/v1`             |
-| `description`                    | Human-readable description       | Optional                 | `User management API` |
-| `rate_limit.requests_per_minute` | Max requests per minute          | Optional                 | `100`                 |
-| `routes.path`                    | Endpoint path                    | Yes                      | `/users`              |
-| `routes.methods`                 | Allowed HTTP methods             | Optional                 | `[GET, POST]`         |
+| Key                              | Description                                                    | Example                 |
+| -------------------------------- | -------------------------------------------------------------- | ----------------------- |
+| `name`                           | Unique identifier for the backend service                      | `user-service`          |
+| `host`                           | Full service base URL                                          | `http://localhost:9001` |
+| `prefix`                         | URL path prefix used to route requests                         | `/users`                |
+| `rate_limit.requests_per_minute` | Maximum number of allowed requests per minute for this service | `120`                   |
 
 ---
 
-## Gateway Security Headers (Request → Service)
+## How It Works
 
-Every request forwarded from the gateway includes metadata headers for identification and verification:
-
-| Header                | Description                                          |
-| --------------------- | ---------------------------------------------------- |
-| `X-Forwarded-Proto`   | Original request protocol (`http` or `https`)        |
-| `User-Agent`          | Identifies requests as coming from AIMAS Gateway     |
-| `X-Request-ID`        | Unique UUID for tracing each request                 |
-| `Authorization`       | Gateway-issued internal bearer token                 |
-| `X-Gateway-Timestamp` | Unix timestamp (prevents replay attacks)             |
-| `X-Gateway-Signature` | HMAC-SHA256 signature of the timestamp               |
-| `X-Gateway-Service`   | Name of the gateway instance (e.g., `aimas-gateway`) |
-
-Downstream services verify these headers to ensure requests originated from the trusted gateway and are recent (for example, within 5 minutes).
-
----
-
-## Response Security Headers
-
-All responses include the following headers to enhance security:
-
-| Header                         | Description                                          |
-| ------------------------------ | ---------------------------------------------------- |
-| `Strict-Transport-Security`    | Enforces HTTPS connections                           |
-| `X-Content-Type-Options`       | Prevents MIME-type sniffing                          |
-| `X-XSS-Protection`             | Enables XSS filter in browsers                       |
-| `X-Frame-Options`              | Prevents clickjacking (`DENY`)                       |
-| `Content-Security-Policy`      | Restricts content loading to same origin             |
-| `Referrer-Policy`              | Controls referrer information sent to external sites |
-| `Cache-Control`                | Prevents caching of sensitive data                   |
-| `Cross-Origin-Opener-Policy`   | Isolates browsing context                            |
-| `Cross-Origin-Resource-Policy` | Restricts resource sharing to same origin            |
-
----
-
-## Metrics and Observability
-
-The gateway collects metrics for:
-
-* Request count, latency, and throughput per route
-* Error rates and response codes
-* Rate limit and signature validation violations
-* Service health and response times
-
-Metrics can be exported to **Prometheus**, **Grafana**, or the **AIMAS Monitoring Dashboard**.
-
----
-
-## Error Handling
-
-The gateway returns standardized JSON errors for:
-
-| Error Type          | Status Code | Example Message                                 |
-| ------------------- | ----------- | ----------------------------------------------- |
-| Missing Route       | `404`       | `{"message": "404 route not found"}`            |
-| Unauthorized        | `401`       | `{"message": "invalid or missing credentials"}` |
-| Forbidden           | `403`       | `{"message": "access denied"}`                  |
-| Rate Limit Exceeded | `429`       | `{"message": "too many requests"}`              |
-| Internal Error      | `500`       | `{"error": "internal server error"}`            |
+1. The gateway loads the `config.yaml` file during startup.
+2. When a client sends a request, the gateway matches the path prefix (e.g., `/movies`) with the configured services.
+3. It forwards the request to the corresponding backend service host.
+4. A unique `X-Request-ID` is generated (if missing) and attached.
+5. The response is streamed back to the client.
+6. The gateway logs all request and response details, including latency, status, and service name.
 
 ---
 
 ## Running the Gateway
 
+By default, the gateway automatically loads `config.yaml` from the working directory.
+No additional flags or parameters are required.
+
 ```bash
-go run . --config=config.yaml | go run . --addr=http://configfile-hosted-here #use while running hosted config file
+go run .
 ```
 
-Or build and run:
+or after building:
 
 ```bash
 go build -o aimas-gateway
-./aimas-gateway --config=./configs/aimas.yaml |
-
- go build -o aimas-gateway
-./aimas-gateway --config=./configs/aimas.yaml  # use while runnng hosted config file
+./aimas-gateway
 ```
+
+---
+
+## Example Flow
+
+**Request:**
+
+```
+GET /movies/latest
+```
+
+**Gateway Action:**
+
+* Matches `/movies` prefix → forwards to `movie-service` at `http://localhost:9002/movies/latest`
+* Adds `X-Request-ID` header
+* Logs request metadata and duration
 

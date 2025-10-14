@@ -167,6 +167,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.rateLimiter.Middleware(svc.Name, svc.RateLimit.RequestsPerMinute),
 		LoggingMiddleware(*svc, g.logger),
 		RecoverMiddleware,
+		SecurityHeadersMiddleware,
 	)
 
 	h.ServeHTTP(w, r)
