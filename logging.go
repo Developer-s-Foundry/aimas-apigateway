@@ -28,38 +28,55 @@ func (tw TextWriter) Write(p []byte) (n int, err error) {
 	var logEntry map[string]interface{}
 	if err := json.Unmarshal(p, &logEntry); err != nil {
 		line := strings.TrimSpace(string(p))
-
-		level := "info"
-		if strings.Contains(strings.ToLower(line), "error") {
-			level = "error"
-		} else if strings.Contains(strings.ToLower(line), "warn") {
-			level = "warn"
-		} else if strings.Contains(strings.ToLower(line), "debug") {
-			level = "debug"
-		}
-		formatted := fmt.Sprintf("level=%s message=%s\n", level, line)
+		formatted := fmt.Sprintf("[%s] INFO  --- %s\n", time.Now().Format(time.RFC3339), line)
 		_, err = tw.Writer.Write([]byte(formatted))
 		return len(p), err
 	}
 
-	var parts []string
-	keys := []string{
-		"level", "method", "path", "status_code", "latency",
-		"service_target", "user_agent", "request_id", "caller", "message",
-	}
-	for _, k := range keys {
-		if val, ok := logEntry[k]; ok {
-			parts = append(parts, fmt.Sprintf("%s=%v", k, val))
-		}
+	timestamp := fmt.Sprintf("%v", logEntry["time"])
+	if timestamp == "" || timestamp == "<nil>" {
+		timestamp = time.Now().Format(time.RFC3339)
 	}
 
-	line := strings.Join(parts, " ") + "\n"
-	_, err = tw.Writer.Write([]byte(line))
+	level := strings.ToUpper(fmt.Sprintf("%v", logEntry["level"]))
+	if level == "" || level == "<nil>" {
+		level = "INFO"
+	}
+
+	message := fmt.Sprintf("%v", logEntry["message"])
+
+	method := safeString(logEntry["method"])
+	path := safeString(logEntry["path"])
+	status := safeString(logEntry["status_code"])
+	latency := safeString(logEntry["latency"])
+	service := safeString(logEntry["service_target"])
+	requestID := safeString(logEntry["request_id"])
+
+	if method != "" && path != "" {
+		formatted := fmt.Sprintf("[%s] %-5s %s %s %s (%s) [%s] request_id=%s msg=\"%s\"\n",
+			timestamp, level, method, path, status, latency, service, requestID, message)
+		_, err = tw.Writer.Write([]byte(formatted))
+		return len(p), err
+	}
+
+	formatted := fmt.Sprintf("[%s] %-5s --- %s\n", timestamp, level, message)
+	_, err = tw.Writer.Write([]byte(formatted))
 	return len(p), err
 }
 
+func safeString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	s := fmt.Sprintf("%v", v)
+	if s == "<nil>" {
+		return ""
+	}
+	return s
+}
+
 func NewLogger() *Log {
-	mode := os.Getenv("debug")
+	mode := os.Getenv("MODE")
 	os.MkdirAll(logs, 0755)
 	fileName := filepath.Join(logs, "gateway.log")
 	var logger *Log = &Log{}
@@ -74,7 +91,7 @@ func NewLogger() *Log {
 
 	var writer io.Writer
 
-	if mode != "test" {
+	if strings.ToLower(mode) != "debug" {
 		writer = io.MultiWriter(TextWriter{Writer: os.Stdout}, logFile)
 	} else {
 		writer = TextWriter{Writer: os.Stdout}
@@ -103,7 +120,8 @@ func NewLogger() *Log {
 		caller := fmt.Sprintf("%s:%d", filepath.Base(f), l)
 		return caller
 	}
-	log := zerolog.New(writer).Level(zerolog.DebugLevel).With().CallerWithSkipFrameCount(2).Logger()
+	zerolog.TimeFieldFormat = time.RFC3339
+	log := zerolog.New(writer).Level(zerolog.DebugLevel).With().Timestamp().CallerWithSkipFrameCount(2).Logger()
 	logger.lg = log
 	return logger
 }

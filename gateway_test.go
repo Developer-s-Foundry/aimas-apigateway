@@ -20,16 +20,6 @@ func mockService(t *testing.T, response string, status int) *httptest.Server {
 }
 
 // setup gateway with provided services
-
-type mockRateLimiter struct{}
-
-func (m *mockRateLimiter) Middleware(_ string, _ float64) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r)
-		})
-	}
-}
 func setupGateway(t *testing.T, services map[string]*Service) *Gateway {
 	logger := NewLogger()
 	gw := NewGateway(logger)
