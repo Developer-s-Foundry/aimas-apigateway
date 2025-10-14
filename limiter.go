@@ -5,31 +5,38 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/time/rate"
 )
 
+type clientLimiter struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
 type RateLimiter struct {
-	mu      sync.Mutex
-	limiter map[string]*rate.Limiter
+	mu       sync.Mutex
+	limiters map[string]*clientLimiter
 }
 
 func NewRateLimiter() *RateLimiter {
-	return &RateLimiter{
-		limiter: make(map[string]*rate.Limiter),
-	}
+	return &RateLimiter{limiters: make(map[string]*clientLimiter)}
 }
 
-func (r *RateLimiter) getRateLimiter(rate_key string, limit rate.Limit, burst int) *rate.Limiter {
+func (r *RateLimiter) getRateLimiter(clientID string, limit rate.Limit, burst int) *rate.Limiter {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	limiter, ok := r.limiter[rate_key]
-	if !ok {
-		limiter = rate.NewLimiter(limit, burst)
-		r.limiter[rate_key] = limiter
+	cl, exists := r.limiters[clientID]
+	if !exists {
+		limiter := rate.NewLimiter(limit, burst)
+		r.limiters[clientID] = &clientLimiter{limiter, time.Now()}
+		return limiter
 	}
-	return limiter
+
+	cl.lastSeen = time.Now()
+	return cl.limiter
 }
 
 func extractClientID(r *http.Request) string {

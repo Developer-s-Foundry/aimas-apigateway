@@ -1,139 +1,157 @@
 package main
 
 import (
-	"errors"
+	"context"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
-	"strconv"
+	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/spf13/viper"
-	"go.yaml.in/yaml/v3"
+	"github.com/fsnotify/fsnotify"
+	"github.com/stretchr/testify/assert/yaml"
 )
 
-type ServiceConfig struct {
+type ServiceConfigFile struct {
 	Services []Service `yaml:"services"`
 }
 
 type RateLimit struct {
 	RequestsPerMinute int `yaml:"requests_per_minute"`
 }
+
 type Service struct {
-	Name        string    `yaml:"name"`
-	Host        string    `yaml:"host"`
-	Version     string    `yaml:"version"`
-	Prefix      string    `yaml:"prefix"`
-	Protocol    string    `yaml:"protocol"`
-	Description string    `yaml:"description"`
-	Port        int       `yaml:"port"`
-	Routes      []Route   `yaml:"routes"`
-	RateLimit   RateLimit `yaml:"rate_limit"`
+	Name      string    `yaml:"name"`
+	Host      string    `yaml:"host"`
+	Prefix    string    `yaml:"prefix"`
+	RateLimit RateLimit `yaml:"rate_limit"`
+	URL       *url.URL  `yaml:"-"`
 }
 
-type Route struct {
-	Path    string   `yaml:"path"`
-	Methods []string `yaml:"methods"`
+func loadConfigFile(path string) (map[string]*Service, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var scf ServiceConfigFile
+	if err := yaml.Unmarshal(data, &scf); err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]*Service)
+	for _, svc := range scf.Services {
+		if svc.Prefix == "" {
+			svc.Prefix = "/" + strings.TrimPrefix(svc.Name, "/")
+		}
+		p := "/" + strings.Trim(strings.TrimSpace(svc.Prefix), "/")
+		svc.Prefix = p
+
+		u, err := url.Parse(svc.Host)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return nil, fmt.Errorf("invalid host for service %s: %s", svc.Name, svc.Host)
+		}
+		svc.URL = u
+
+		if _, ok := out[p]; ok {
+			return nil, fmt.Errorf("duplicate service prefix: %s", p)
+		}
+		s := svc
+		out[p] = &s
+	}
+
+	return out, nil
 }
 
-func NewServiceConfig(configName, configPath, remoteAddr string) (ServiceConfig, error) {
-	var err error
-	data := make([]byte, 1024*2)
-	var sc = ServiceConfig{}
-	if configName != "" {
-		err = loadConfigFile(configName, configPath)
-		if err != nil {
-			if errors.Is(err, viper.ConfigFileNotFoundError{}) {
-				return ServiceConfig{}, ErrorConfigFileNotFound
+func (g *Gateway) WatchConfig(path string, stopCtx context.Context) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(abs)
+	file := filepath.Base(abs)
+
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+
+	if err := w.Add(dir); err != nil {
+		_ = w.Close()
+		return err
+	}
+
+	if err := g.reloadFromPath(abs); err != nil {
+		g.logger.Warning("err", fmt.Sprintf("initial config load failed: %v", err))
+	}
+
+	go func() {
+		defer w.Close()
+		debounce := time.NewTimer(0)
+		if !debounce.Stop() {
+			<-debounce.C
+		}
+		for {
+			select {
+			case <-stopCtx.Done():
+				return
+			case ev, ok := <-w.Events:
+				if !ok {
+					return
+				}
+				if filepath.Base(ev.Name) != file {
+					continue
+				}
+				debounce.Reset(200 * time.Millisecond)
+			case <-debounce.C:
+				if err := g.reloadFromPath(abs); err != nil {
+					g.logger.Warning("err", fmt.Sprintf("reload failed: %v", err))
+				}
+			case err := <-w.Errors:
+				g.logger.Warning("err", fmt.Sprintf("fsnotify error: %v", err))
 			}
-			return ServiceConfig{}, err
 		}
-
-		filepath := viper.ConfigFileUsed()
-		file, err := os.Open(filepath)
-		if err != nil {
-			return ServiceConfig{}, err
-		}
-		n, err := file.Read(data)
-
-		data = data[:n]
-		if err != nil {
-			return ServiceConfig{}, err
-		}
-	} else {
-		resp, err := http.Get(remoteAddr)
-		if err != nil {
-			return ServiceConfig{}, err
-		}
-		data, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return ServiceConfig{}, err
-		}
-	}
-
-	if err := yaml.Unmarshal(data, &sc); err != nil {
-		return ServiceConfig{}, err
-	}
-	return sc, nil
-}
-
-func loadConfigFile(configName, configPath string) error {
-	if configPath == "" {
-		configPath = "."
-	}
-	viper.SetConfigName(configName)
-	viper.SetConfigType("yml")
-	viper.AddConfigPath(configPath)
-	return viper.ReadInConfig()
-}
-
-func (s *Service) parseURL() error {
-	if s.Protocol == "" {
-		s.Protocol = "http"
-	}
-	if !hasScheme(s.Host) {
-		s.Host = fmt.Sprintf("%s://%s", s.Protocol, s.Host)
-	}
-
-	u, err := url.Parse(s.Host)
-	if err != nil {
-		return fmt.Errorf("invalid URL: missing scheme or host, %w", err)
-	}
-
-	if strings.Contains(u.Host, ":") && strings.Count(u.Host, ":") > 1 {
-		return errors.New("invalid URL: malformed port section")
-	}
-
-	host := u.Host
-	if host == "" {
-		host = u.Path
-	}
-	hostPart, port, err := net.SplitHostPort(host)
-	if err != nil {
-		if _, ok := err.(*net.AddrError); ok && s.Port == 0 {
-			return ErrorConfigMissingPort
-		} else if s.Port != 0 {
-			port = strconv.Itoa(s.Port)
-		} else {
-			return fmt.Errorf("invalid host or port: %v", err)
-		}
-	}
-
-	s.Host = fmt.Sprintf("%s://%s", s.Protocol, net.JoinHostPort(hostPart, port))
+	}()
 	return nil
 }
 
-func hasScheme(s string) bool {
-	return len(s) > 7 && (s[:7] == "http://" || s[:8] == "https://")
+func (g *Gateway) reloadFromPath(path string) error {
+	newRoutes, err := loadConfigFile(path)
+	if err != nil {
+		return err
+	}
+	g.atomicRoutes.Store(newRoutes)
+
+	g.cleanupProxyCache(newRoutes)
+
+	g.logger.Info("reload", fmt.Sprintf("configuration reloeaded: %d services", len(newRoutes)))
+	return nil
 }
 
-func (s Service) clientIp(addr string) (string, error) {
-	ip, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return "", err
+func (g *Gateway) cleanupProxyCache(keep map[string]*Service) {
+	g.proxyCache.Range(func(k, v any) bool {
+		key := k.(string)
+		keepThis := false
+		for _, svc := range keep {
+			if svc.Name == key {
+				keepThis = true
+				break
+			}
+		}
+		if !keepThis {
+			g.proxyCache.Delete(key)
+			g.logger.Error("poxy-cache-error", fmt.Sprintf("proxy cache evicted for service: %s", key), nil)
+		}
+		return true
+	})
+}
+
+func extractPrefix(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || p == "/" {
+		return ""
 	}
-	return ip, nil
+	p = "/" + strings.Trim(p, "/")
+	parts := strings.SplitN(strings.TrimPrefix(p, "/"), "/", 2)
+	return "/" + parts[0]
 }

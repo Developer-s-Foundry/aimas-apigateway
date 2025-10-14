@@ -1,25 +1,18 @@
-# an example yaml file used for  testing the gate way
 services:
   - name: user-service
-    host: localhost:9090
-    version: v1
-    prefix: /api/v1
-    protocol: http
-    description: handle user authentication routes logic
-    # port: 9090 # optional
-    routes:
-      - path: /users
-        methods: [GET, POST] #
+    host: http://localhost:9001
+    prefix: /users
     rate_limit:
-      request_per_minute: 10
+      requests_per_minute: 120
 
-  - name: log-service
-    host: localhost:2020
-    version: v1
-    prefix: /api/v1
-    # protocol: http #optional
-    description: handle user log service
-    # port: 2020
-    routes:
-      - path: /log
-        methods: [GET, POST]
+  - name: movie-service
+    host: http://localhost:9002
+    prefix: /movies
+    rate_limit:
+      requests_per_minute: 100
+
+  # - name: payment-service
+  #   host: http://localhost:9003
+  #   prefix: /payments
+  #   rate_limit:
+  #     requests_per_minute: 60

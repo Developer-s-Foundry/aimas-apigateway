@@ -109,7 +109,7 @@ func NewLogger() *Log {
 }
 
 func (l *Log) Info(key, msg string) {
-	l.lg.Info().Str(key, msg).Msg("")
+	l.lg.Info().Str("Context", key).Msg(msg)
 }
 
 func (l *Log) Error(key, message string, err error) {
@@ -117,13 +117,13 @@ func (l *Log) Error(key, message string, err error) {
 }
 
 func (l *Log) Warning(key string, msg string) {
-	l.lg.Warn().Str(key, msg).Msg("")
+	l.lg.Warn().Str("context", key).Msg(msg)
 }
 
 func (l *Log) Debug(key string, msg string) {
-	l.lg.Debug().Str(key, msg).Msg("")
+	l.lg.Debug().Str("context", key).Msg(msg)
 }
 
-func (l *Log) Fatal(key string, err error) {
-	l.lg.Fatal().AnErr(key, err)
+func (l *Log) Fatal(key string, message string, err error) {
+	l.lg.Fatal().AnErr(key, err).Msg(message)
 }

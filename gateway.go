@@ -1,162 +1,173 @@
 package main
 
 import (
-	"bytes"
+	"context"
+	"errors"
 	"flag"
 	"fmt"
-	"io"
+	"net"
 	"net/http"
-	"net/url"
+	"net/http/httputil"
 	"os"
-	"path"
+	"os/signal"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
-	"github.com/joho/godotenv"
 )
 
-var log = NewLogger()
+type Gateway struct {
+	atomicRoutes atomic.Value
+
+	rateLimiter *RateLimiter
+	proxyCache  sync.Map
+	mu          sync.Mutex
+	logger      *Log
+}
 
 func main() {
-	godotenv.Load()
+	logger := NewLogger()
 
-	configFile := flag.String("config", "", "user configuration file")
-	path := flag.String("path", "", "config file path")
-	rAddr := flag.String("addr", "", "config file remote address")
+	configFile := flag.String("config", "aimas.yml", "configuration file path")
 	flag.Parse()
 
-	sc, err := NewServiceConfig(*configFile, *path, *rAddr)
-	if err != nil {
-		fmt.Println(err)
-		log.Error("service-config", "failed to load configuration file: "+err.Error(), err)
+	gw := NewGateway(logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := gw.reloadFromPath(*configFile); err != nil {
+		logger.Fatal("config", fmt.Sprintf("failed to load config: %v", err), err)
 	}
 
-	router := gateWayServer(sc.Services...)
+	if err := gw.WatchConfig(*configFile, ctx); err != nil {
+		logger.Fatal("config", fmt.Sprintf("failed to watch config: %v", err), err)
+	}
 
 	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: gw,
+	}
 
-	log.Info("message", fmt.Sprintf("server running on port: %s", port))
-	log.Fatal("server-err", http.ListenAndServe(fmt.Sprintf(":%s", port), router))
+	go func() {
+		logger.Info("gateway", fmt.Sprintf("gateway starting on %s", srv.Addr))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatal("server", fmt.Sprintf("listen error: %v", err), err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	logger.Info("server", "shutting down...")
+	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	if err := srv.Shutdown(ctxShutdown); err != nil {
+		logger.Fatal("server", fmt.Sprintf("shutdown error: %v", err), err)
+	}
+	logger.Info("server", "server stopped")
 }
 
-func gateWayServer(serverConfig ...Service) http.Handler {
-	router := mux.NewRouter()
-	for _, config := range serverConfig {
-		if err := config.parseURL(); err != nil {
-			log.lg.Error().
-				Err(err).
-				Str("service", config.Name).
-				Msg("failed to parse service URL")
-			continue
+func NewGateway(logger *Log) *Gateway {
+	g := &Gateway{logger: logger, rateLimiter: NewRateLimiter()}
+	g.atomicRoutes.Store(map[string]*Service{})
+	return g
+}
+
+func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
+	if v, ok := g.proxyCache.Load(svc.Name); ok {
+		return v.(*httputil.ReverseProxy)
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if v, ok := g.proxyCache.Load(svc.Name); ok {
+		return v.(*httputil.ReverseProxy)
+	}
+
+	target := svc.URL
+
+	director := func(req *http.Request) {
+		origPath := req.URL.Path
+
+		req.URL.Scheme = target.Scheme
+		req.URL.Host = target.Host
+		req.URL.Path = origPath
+		if req.URL.Path == "" {
+			req.URL.Path = "/"
 		}
 
-		targetServer, err := url.Parse(config.Host)
-		if err != nil || targetServer.Scheme == "" || targetServer.Host == "" {
-			log.lg.Error().
-				Err(err).
-				Str("service", config.Name).
-				Str("host", config.Host).
-				Msg("invalid target server URL")
-			continue
+		origHeaders := req.Header.Clone()
+
+		req.Header = make(http.Header)
+		for k, v := range origHeaders {
+			for _, hv := range v {
+				req.Header.Add(k, hv)
+			}
 		}
 
-		for _, route := range config.Routes {
-			var fullPath string
-			if config.Prefix != "" {
-				fullPath = path.Join(config.Prefix, route.Path)
+		if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
+			if prior := req.Header.Get("X-Forwarded-For"); prior != "" {
+				req.Header.Set("X-Forwarded-For", prior+", "+clientIP)
 			} else {
-				fullPath = route.Path
+				req.Header.Set("X-Forwarded-For", clientIP)
 			}
+		}
 
-			r := NewRateLimiter()
-			h := applyMiddleWare(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				proxyRouter(w, r, targetServer, config)
-			}),
-				r.Middleware(config.Name, config.RateLimit.RequestsPerMinute),
-				LoggingMiddleware(config),
-				RecoverMiddleware,
-				SecurityHeadersMiddleware,
+		req.Header.Set("X-Forwarded-Proto", "http")
+
+		signRequest(req, *svc)
+
+		req.Host = target.Host
+	}
+
+	proxy := &httputil.ReverseProxy{
+		Director: director,
+		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			g.logger.Error("proxy-error",
+				fmt.Sprintf("proxy error for service %s: %v", svc.Name, err),
+				err,
 			)
-
-			router.Handle(fullPath, h).Methods(route.Methods...)
-		}
+			JSONBadResponse(w, "bad gateway", http.StatusBadGateway, nil)
+		},
 	}
 
-	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		JSONBadResponse(w, "404 route not found", http.StatusNotFound, nil)
-	})
-
-	router.MethodNotAllowedHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		JSONBadResponse(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed, nil)
-	})
-
-	return router
+	g.proxyCache.Store(svc.Name, proxy)
+	return proxy
 }
 
-func proxyRouter(w http.ResponseWriter, r *http.Request, targetServer *url.URL, config Service) {
-	var body io.Reader
-	if r.Body != nil {
-		data, _ := io.ReadAll(r.Body)
-		r.Body.Close()
-		body = bytes.NewReader(data)
-	}
-	proxyURL := targetServer.String() + r.URL.Path
-	setReqHeaders(r, targetServer, config)
-	req, err := http.NewRequest(r.Method, proxyURL, body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/health" || r.URL.Path == "/healthz" {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
 		return
 	}
-	req.Header = r.Header.Clone()
 
-	resp, err := http.DefaultTransport.RoundTrip(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-	if isStreamingResponse(resp) {
-		streamResponse(w, resp)
-	} else {
-		forwardResponse(w, resp)
-	}
-}
-
-func setReqHeaders(r *http.Request, targetServer *url.URL, config Service) {
-	r.Host = targetServer.Host
-	r.URL.Host = targetServer.Host
-	r.URL.Scheme = targetServer.Scheme
-	r.RequestURI = ""
-	ip, err := config.clientIp(r.RemoteAddr)
-	if err != nil {
-		log.lg.Err(err).AnErr("client-ip", err)
-	}
-	r.Header.Set("X-Forwarded-Proto", config.Protocol)
-	r.Header.Set("User-Agent", "aimas-gateway/1.0")
 	r.Header.Set("X-Request-ID", uuid.NewString())
-	r.Header.Set("Authorization", "Bearer internal_service_token_123") //TODO: will implement this later on
-	r.Header.Set("X-Forwarded-For", ip)
-	signRequest(r, config)
-}
-
-func streamResponse(w http.ResponseWriter, resp *http.Response) {
-	flusher, ok := w.(http.Flusher)
+	routes := g.atomicRoutes.Load().(map[string]*Service)
+	prefix := extractPrefix(r.URL.Path)
+	svc, ok := routes[prefix]
 	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		JSONBadResponse(w, "service not found", http.StatusNotFound, nil)
 		return
 	}
-	buf := make([]byte, 1024)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			w.Write(buf[:n])
-			flusher.Flush()
-		}
-		if err != nil {
-			if err != io.EOF {
-				log.Error("eof", err.Error(), err)
-			}
-			break
-		}
-	}
+
+	proxy := g.getReverseProxy(svc)
+
+	h := applyMiddleWare(
+		http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			proxy.ServeHTTP(w, req)
+		}),
+		g.rateLimiter.Middleware(svc.Name, svc.RateLimit.RequestsPerMinute),
+		LoggingMiddleware(*svc, g.logger),
+		RecoverMiddleware,
+	)
+
+	h.ServeHTTP(w, r)
 }
