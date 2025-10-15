@@ -1,6 +1,6 @@
 services:
   - name: user-service
-    host: https://df20-aima-auth.railway.internal
+    host: https://df-20-aima-general-authentication-service-production.up.railway.app
     prefix: /users
     rate_limit:
       requests_per_minute: 120
