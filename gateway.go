@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -95,13 +96,15 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 
 	director := func(req *http.Request) {
 		origPath := req.URL.Path
+		prefix := svc.Prefix
+		trimmed := strings.TrimPrefix(origPath, prefix)
+		if trimmed == "" {
+			trimmed = "/"
+		}
 
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
-		req.URL.Path = origPath
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
+		req.URL.Path = trimmed
 
 		origHeaders := req.Header.Clone()
 
@@ -169,6 +172,5 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RecoverMiddleware,
 		SecurityHeadersMiddleware,
 	)
-
 	h.ServeHTTP(w, r)
 }

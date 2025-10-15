@@ -1,18 +1,18 @@
 services:
   - name: user-service
-    host: http://localhost:9001
+    host: https://fa9ba53540fd.ngrok-free.app
     prefix: /users
     rate_limit:
       requests_per_minute: 120
 
-  - name: movie-service
-    host: http://localhost:9002
-    prefix: /movies
-    rate_limit:
-      requests_per_minute: 100
+  # - name: movie-service
+  #   host: http://localhost:9002
+  #   prefix: /movies
+  #   rate_limit:
+  #     requests_per_minute: 100
 
-  - name: payment-service
-    host: http://localhost:9003
-    prefix: /payments
-    rate_limit:
-      requests_per_minute: 60
+  # - name: payment-service
+  #   host: http://localhost:9003
+  #   prefix: /payments
+  #   rate_limit:
+  #     requests_per_minute: 60
