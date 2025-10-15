@@ -1,6 +1,6 @@
 services:
   - name: user-service
-    host: https://fa9ba53540fd.ngrok-free.app
+    host: https://df20-aima-auth.railway.internal
     prefix: /users
     rate_limit:
       requests_per_minute: 120
