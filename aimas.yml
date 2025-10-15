@@ -5,11 +5,11 @@ services:
     rate_limit:
       requests_per_minute: 120
 
-  # - name: movie-service
-  #   host: http://localhost:9002
-  #   prefix: /movies
-  #   rate_limit:
-  #     requests_per_minute: 100
+  - name: log-management-service
+    host: https://df-2-0-aima-log-service.onrender.com
+    prefix: /logs-management
+    rate_limit:
+      requests_per_minute: 100
 
   # - name: payment-service
   #   host: http://localhost:9003
