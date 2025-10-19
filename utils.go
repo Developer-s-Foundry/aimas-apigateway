@@ -57,6 +57,7 @@ func signRequest(req *http.Request, config Service) {
 	signature := hex.EncodeToString(h.Sum(nil))
 	req.Header.Set("X-Gateway-Timestamp", timestamp)
 	req.Header.Set("X-Gateway-Signature", signature)
+	req.Header.Set("X-Service-Name", config.Name)
 }
 
 type Claims struct {

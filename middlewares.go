@@ -116,13 +116,9 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-type usrContext string
-
-var userContext = usrContext("user")
-
 func (g *Gateway) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/register") {
+		if strings.HasPrefix(r.URL.Path, "/auth") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -140,7 +136,6 @@ func (g *Gateway) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// ctx := context.WithValue(r.Context(), userContext, claims)
 		r.Header.Set("X-User-ID", claims.UserID)
 
 		next.ServeHTTP(w, r)
