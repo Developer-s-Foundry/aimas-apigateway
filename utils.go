@@ -50,7 +50,7 @@ func JSONBadResponse(w http.ResponseWriter, message string, statusCode int, erro
 
 func signRequest(req *http.Request, config Service) {
 	var gatewaySecret = os.Getenv("GATEWAY_SECRET_KEY")
-	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	timestamp := strconv.FormatInt(time.Now().Add(6*time.Hour).UnixNano(), 10)
 	encryptKey := fmt.Sprintf("%s:%s", config.Name, timestamp)
 	h := hmac.New(sha256.New, []byte(gatewaySecret))
 	h.Write([]byte(encryptKey))
