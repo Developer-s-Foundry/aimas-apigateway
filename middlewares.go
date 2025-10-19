@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/hlog"
@@ -111,6 +112,37 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")
 		w.Header().Set("Referrer-Policy", "no-referrer-when-downgrade")
+		next.ServeHTTP(w, r)
+	})
+}
+
+type usrContext string
+
+var userContext = usrContext("user")
+
+func (g *Gateway) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/register") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		tokenStr := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if tokenStr == "" {
+			JSONBadResponse(w, "missing token", http.StatusUnauthorized, nil)
+			return
+		}
+
+		claims, err := ValidateJWT(tokenStr)
+		if err != nil {
+			fmt.Println(err.Error())
+			JSONBadResponse(w, "invalid or expired token", http.StatusUnauthorized, nil)
+			return
+		}
+
+		// ctx := context.WithValue(r.Context(), userContext, claims)
+		r.Header.Set("X-User-ID", claims.UserID)
+
 		next.ServeHTTP(w, r)
 	})
 }

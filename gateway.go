@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 )
 
 type Gateway struct {
@@ -29,6 +30,7 @@ type Gateway struct {
 }
 
 func main() {
+	godotenv.Load()
 	logger := NewLogger()
 
 	configFile := flag.String("config", "aimas.yml", "configuration file path")
@@ -106,6 +108,10 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 		req.URL.Host = target.Host
 		req.URL.Path = trimmed
 
+		// Forward original Authorization header too
+		// if authHeader := req.Header.Get("Authorization"); authHeader != "" {
+		// 	req.Header.Set("Authorization", authHeader)
+		// }
 		origHeaders := req.Header.Clone()
 
 		req.Header = make(http.Header)
@@ -122,8 +128,6 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 				req.Header.Set("X-Forwarded-For", clientIP)
 			}
 		}
-
-		req.Header.Set("X-Forwarded-Proto", "http")
 
 		signRequest(req, *svc)
 
@@ -167,6 +171,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			proxy.ServeHTTP(w, req)
 		}),
+		g.AuthMiddleware,
 		g.rateLimiter.Middleware(svc.Name, svc.RateLimit.RequestsPerMinute),
 		LoggingMiddleware(*svc, g.logger),
 		RecoverMiddleware,
