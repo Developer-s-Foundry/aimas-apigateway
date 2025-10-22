@@ -12,7 +12,7 @@ services:
       requests_per_minute: 100
 
   - name: auth-service
-    host: http://localhost:8000
+    host: https://github.com/Developer-s-Foundry/df-2.0-aima-auth-service
     prefix: /auth
     rate_limit:
       requests_per_minute: 100
