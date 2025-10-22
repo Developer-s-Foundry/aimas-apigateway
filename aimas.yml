@@ -16,6 +16,12 @@ services:
     prefix: /auth
     rate_limit:
       requests_per_minute: 100
+
+  - name: recommendation-service
+    host: http://13.53.197.97
+    prefix: /recommend
+    rate_limit:
+      requests_per_minute: 100
   # - name: payment-service
   #   host: http://localhost:9003
   #   prefix: /payments
