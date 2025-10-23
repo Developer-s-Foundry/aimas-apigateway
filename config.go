@@ -22,11 +22,12 @@ type RateLimit struct {
 }
 
 type Service struct {
-	Name      string    `yaml:"name"`
-	Host      string    `yaml:"host"`
-	Prefix    string    `yaml:"prefix"`
-	RateLimit RateLimit `yaml:"rate_limit"`
-	URL       *url.URL  `yaml:"-"`
+	Name       string    `yaml:"name"`
+	Host       string    `yaml:"host"`
+	Prefix     string    `yaml:"prefix"`
+	RateLimit  RateLimit `yaml:"rate_limit"`
+	StripPefix bool      `yaml:"strip_prefix"`
+	URL        *url.URL  `yaml:"-"`
 }
 
 func loadConfigFile(path string) (map[string]*Service, error) {

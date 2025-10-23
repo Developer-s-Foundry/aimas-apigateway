@@ -10,19 +10,23 @@ services:
     prefix: /logs-management
     rate_limit:
       requests_per_minute: 100
+    strip_prefix: true
 
   - name: auth-service
-    host:  https://df-2-0-aima-auth-service.onrender.com
+    # host: https://df-2-0-aima-auth-service.onrender.com
+    host: http://localhost:8000
     prefix: /auth
     rate_limit:
       requests_per_minute: 100
+    strip_prefix: false
 
   - name: recommendation-service
     host: http://13.53.197.97
-    prefix: /recommend
+    prefix: /rec
     rate_limit:
       requests_per_minute: 100
-    
+    strip_prefix: true
+
   # - name: payment-service
   #   host: http://localhost:9003
   #   prefix: /payments

@@ -99,19 +99,25 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 	director := func(req *http.Request) {
 		origPath := req.URL.Path
 		prefix := svc.Prefix
-		trimmed := strings.TrimPrefix(origPath, prefix)
-		if trimmed == "" {
-			trimmed = "/"
+
+		var trimmed string
+
+		if svc.StripPefix {
+			trimmed = strings.TrimPrefix(origPath, prefix)
+			if trimmed == "" {
+				trimmed = "/"
+			}
+		} else {
+			trimmed = origPath
 		}
 
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
 		req.URL.Path = trimmed
 
-		// Forward original Authorization header too
-		// if authHeader := req.Header.Get("Authorization"); authHeader != "" {
-		// 	req.Header.Set("Authorization", authHeader)
-		// }
+		if authHeader := req.Header.Get("Authorization"); authHeader != "" {
+			req.Header.Set("Authorization", authHeader)
+		}
 		origHeaders := req.Header.Clone()
 
 		req.Header = make(http.Header)
@@ -141,7 +147,12 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 				fmt.Sprintf("proxy error for service %s: %v", svc.Name, err),
 				err,
 			)
-			JSONBadResponse(w, "bad gateway", http.StatusBadGateway, nil)
+			message := map[string]interface{}{
+				"message":     fmt.Sprintf("failed to reach service %s", svc.Name),
+				"error":       err.Error(),
+				"status_code": http.StatusBadGateway,
+			}
+			JSONBadResponse(w, "bad gateway", http.StatusBadGateway, message)
 		},
 	}
 
@@ -171,11 +182,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			proxy.ServeHTTP(w, req)
 		}),
-		g.AuthMiddleware,
-		g.rateLimiter.Middleware(svc.Name, svc.RateLimit.RequestsPerMinute),
 		LoggingMiddleware(*svc, g.logger),
+		g.rateLimiter.Middleware(svc.Name, svc.RateLimit.RequestsPerMinute),
+		g.AuthMiddleware,
 		RecoverMiddleware,
 		SecurityHeadersMiddleware,
 	)
+
 	h.ServeHTTP(w, r)
+
 }
