@@ -12,7 +12,7 @@ services:
       requests_per_minute: 100
 
   - name: auth-service
-    host: https://github.com/Developer-s-Foundry/df-2.0-aima-auth-service
+    host:  https://df-2-0-aima-auth-service.onrender.com
     prefix: /auth
     rate_limit:
       requests_per_minute: 100
@@ -22,6 +22,7 @@ services:
     prefix: /recommend
     rate_limit:
       requests_per_minute: 100
+    
   # - name: payment-service
   #   host: http://localhost:9003
   #   prefix: /payments
