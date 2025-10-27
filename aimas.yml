@@ -15,7 +15,6 @@ services:
 
   - name: auth-service
     host: https://df-2-0-aima-auth-service.onrender.com
-    # host: http://localhost:8000
     prefix: /auth
     rate_limit:
       requests_per_minute: 100

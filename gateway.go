@@ -115,7 +115,6 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 		req.URL.Host = target.Host
 		req.URL.Path = trimmed
 
-		fmt.Println(req.Header)
 		// origHeaders := req.Header.Clone()
 
 		// req.Header = make(http.Header)
@@ -137,7 +136,6 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 
 		req.Host = target.Host
 
-		fmt.Println(req.Header)
 	}
 
 	proxy := &httputil.ReverseProxy{
