@@ -115,17 +115,15 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 		req.URL.Host = target.Host
 		req.URL.Path = trimmed
 
-		if authHeader := req.Header.Get("Authorization"); authHeader != "" {
-			req.Header.Set("Authorization", authHeader)
-		}
-		origHeaders := req.Header.Clone()
+		fmt.Println(req.Header)
+		// origHeaders := req.Header.Clone()
 
-		req.Header = make(http.Header)
-		for k, v := range origHeaders {
-			for _, hv := range v {
-				req.Header.Add(k, hv)
-			}
-		}
+		// req.Header = make(http.Header)
+		// for k, v := range origHeaders {
+		// 	for _, hv := range v {
+		// 		req.Header.Add(k, hv)
+		// 	}
+		// }
 
 		if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
 			if prior := req.Header.Get("X-Forwarded-For"); prior != "" {
@@ -138,6 +136,8 @@ func (g *Gateway) getReverseProxy(svc *Service) *httputil.ReverseProxy {
 		signRequest(req, *svc)
 
 		req.Host = target.Host
+
+		fmt.Println(req.Header)
 	}
 
 	proxy := &httputil.ReverseProxy{
@@ -188,7 +188,5 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RecoverMiddleware,
 		SecurityHeadersMiddleware,
 	)
-
 	h.ServeHTTP(w, r)
-
 }

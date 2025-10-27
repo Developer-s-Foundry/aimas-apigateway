@@ -135,9 +135,7 @@ func (g *Gateway) AuthMiddleware(next http.Handler) http.Handler {
 			JSONBadResponse(w, "invalid or expired token", http.StatusUnauthorized, nil)
 			return
 		}
-
 		r.Header.Set("X-User-ID", claims.UserID)
-
 		next.ServeHTTP(w, r)
 	})
 }
