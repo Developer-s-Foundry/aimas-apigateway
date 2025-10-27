@@ -4,6 +4,7 @@ services:
     prefix: /users
     rate_limit:
       requests_per_minute: 120
+    strip_prefix: true
 
   - name: log-management-service
     host: https://df-2-0-aima-log-service.onrender.com
