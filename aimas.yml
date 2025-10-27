@@ -1,6 +1,6 @@
 services:
   - name: user-service
-    host: https://df20-aima-auth.railway.internal
+    host: https://teams-and-user-service-production.up.railway.app
     prefix: /users
     rate_limit:
       requests_per_minute: 120
@@ -13,8 +13,8 @@ services:
     strip_prefix: true
 
   - name: auth-service
-    host: https://df-2-0-aima-auth-service.onrender.com
-    # host: http://localhost:8000
+    # host: https://df-2-0-aima-auth-service.onrender.com
+    host: http://localhost:8000
     prefix: /auth
     rate_limit:
       requests_per_minute: 100
